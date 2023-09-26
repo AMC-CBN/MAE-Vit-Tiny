@@ -1,0 +1,7 @@
+FROM lionellwolf/wolf-claw 
+
+RUN apt update; exit 0 
+RUN apt install -y wget git
+RUN touch /path/to/file && chmod 644 /path/to/file
+RUN pip install -r requirements.txt
+RUN pip install wandb

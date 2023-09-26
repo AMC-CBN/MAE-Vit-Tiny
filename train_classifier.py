@@ -2,13 +2,20 @@ import os
 import argparse
 import math
 import torch
+#nn module add
+import torch.nn as nn
 import torchvision
+#Distribute GPU number selection add
+import wandb
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import ToTensor, Compose, Normalize
 from tqdm import tqdm
 
 from model import *
 from utils import setup_seed
+
+#Add parallel processing GPU number selection
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -40,12 +47,35 @@ if __name__ == '__main__':
 
     if args.pretrained_model_path is not None:
         model = torch.load(args.pretrained_model_path, map_location='cpu')
-        writer = SummaryWriter(os.path.join('logs', 'cifar10', 'pretrain-cls'))
+        #Add to Lab Project Self-Supervised
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="MAE_ViT_Tiny",
+            entity="amccbn",
+            # track hyperparameters and run metadata
+            config={
+            "architecture": "Self_Supervised_pretrained_ViT_Tiny_Classification",
+            "dataset": "cifar-10",
+            "epochs": 2000,
+            }
+        )
     else:
         model = MAE_ViT()
-        writer = SummaryWriter(os.path.join('logs', 'cifar10', 'scratch-cls'))
+        #Add to Lab Project supervised
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="MAE_ViT_Tiny",
+            entity="amccbn",
+            # track hyperparameters and run metadata
+            config={
+            "architecture": "Supervised_ViT_Tiny",
+            "dataset": "cifar-10",
+            "epochs": 2000,
+            }
+        )
     model = ViT_Classifier(model.encoder, num_classes=10).to(device)
-
+    #nn.DataParallel Add
+    model = nn.DataParallel(model).to(device)
     loss_fn = torch.nn.CrossEntropyLoss()
     acc_fn = lambda logit, label: torch.mean((logit.argmax(dim=-1) == label).float())
 
@@ -99,5 +129,6 @@ if __name__ == '__main__':
             print(f'saving best model with acc {best_val_acc} at {e} epoch!')       
             torch.save(model, args.output_model_path)
 
-        writer.add_scalars('cls/loss', {'train' : avg_train_loss, 'val' : avg_val_loss}, global_step=e)
-        writer.add_scalars('cls/acc', {'train' : avg_train_acc, 'val' : avg_val_acc}, global_step=e)
+        #wandb log Add
+        wandb.log({'Train_Loss', avg_train_loss, 'Val_Loss', avg_val_loss})
+        wandb.log({'Train_Acc', avg_train_acc, 'Val_Acc', avg_val_acc})

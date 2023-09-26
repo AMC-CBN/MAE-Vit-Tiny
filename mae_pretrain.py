@@ -2,13 +2,32 @@ import os
 import argparse
 import math
 import torch
+#nn Module Add
+import torch.nn as nn
 import torchvision
-from torch.utils.tensorboard import SummaryWriter
+#wandb Module Add
+import wandb
+
 from torchvision.transforms import ToTensor, Compose, Normalize
 from tqdm import tqdm
 
 from model import *
 from utils import setup_seed
+#Add parallel processing GPU number selection
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+
+#Add to Lab Project
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="MAE_ViT_Tiny",
+    entity="amccbn",
+    # track hyperparameters and run metadata
+    config={
+    "architecture": "Self_Supervised_pretrained_ViT_Tiny",
+    "dataset": "cifar-10",
+    "epochs": 2000,
+    }
+)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -20,7 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('--mask_ratio', type=float, default=0.75)
     parser.add_argument('--total_epoch', type=int, default=2000)
     parser.add_argument('--warmup_epoch', type=int, default=200)
-    parser.add_argument('--model_path', type=str, default='vit-t-mae.pt')
+    parser.add_argument('--model_path', type=str, default='./vit-t-mae.pt')
 
     args = parser.parse_args()
 
@@ -35,10 +54,11 @@ if __name__ == '__main__':
     train_dataset = torchvision.datasets.CIFAR10('data', train=True, download=True, transform=Compose([ToTensor(), Normalize(0.5, 0.5)]))
     val_dataset = torchvision.datasets.CIFAR10('data', train=False, download=True, transform=Compose([ToTensor(), Normalize(0.5, 0.5)]))
     dataloader = torch.utils.data.DataLoader(train_dataset, load_batch_size, shuffle=True, num_workers=4)
-    writer = SummaryWriter(os.path.join('logs', 'cifar10', 'mae-pretrain'))
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     model = MAE_ViT(mask_ratio=args.mask_ratio).to(device)
+    #nn.DataParallel Add
+    model = nn.DataParallel(model).to(device)
     optim = torch.optim.AdamW(model.parameters(), lr=args.base_learning_rate * args.batch_size / 256, betas=(0.9, 0.95), weight_decay=args.weight_decay)
     lr_func = lambda epoch: min((epoch + 1) / (args.warmup_epoch + 1e-8), 0.5 * (math.cos(epoch / args.total_epoch * math.pi) + 1))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=lr_func, verbose=True)
@@ -59,8 +79,10 @@ if __name__ == '__main__':
                 optim.zero_grad()
             losses.append(loss.item())
         lr_scheduler.step()
+        wandb.log({'LR', lr_scheduler})
         avg_loss = sum(losses) / len(losses)
-        writer.add_scalar('mae_loss', avg_loss, global_step=e)
+        #Mad_Loss log Add
+        wandb.log({'Mae_Loss', avg_loss})
         print(f'In epoch {e}, average traning loss is {avg_loss}.')
 
         ''' visualize the first 16 predicted images on val dataset'''
@@ -72,7 +94,7 @@ if __name__ == '__main__':
             predicted_val_img = predicted_val_img * mask + val_img * (1 - mask)
             img = torch.cat([val_img * (1 - mask), predicted_val_img, val_img], dim=0)
             img = rearrange(img, '(v h1 w1) c h w -> c (h1 h) (w1 v w)', w1=2, v=3)
-            writer.add_image('mae_image', (img + 1) / 2, global_step=e)
-        
+            #mae_image log Add
+            wandb.log({"mae_image": wandb.Image((img + 1) / 2)})
         ''' save model '''
         torch.save(model, args.model_path)
